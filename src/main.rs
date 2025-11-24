@@ -119,43 +119,18 @@ fn spawn_pipes(
         ));
     }
 }
-fn move_bird_1(
-    buttons: Res<ButtonInput<MouseButton>>,
-    mut bird_forces: Single<Forces, With<Bird>>,
-) {
-    if buttons.pressed(MouseButton::Left) {
-        println!("i was pressed");
-
-        bird_forces.apply_force(Vec2::new(0.0, 100500.0));
-    }
-}
 
 fn move_bird(
     buttons: Res<ButtonInput<MouseButton>>,
-    mut bird: Single<(&mut Transform, &mut Sprite,&mut LinearVelocity), With<Bird>>,
-    bird_sprite_handle: Res<BirdSpriteHandle>,
+    mut bird: Single<&mut Transform, With<Bird>>,
     time: Res<Time>,
 ) {
     if buttons.pressed(MouseButton::Left) {
-        println!("i was pressed {} {}",bird.2.x,bird.2.y);
-        println!("i was calculating {}",time.delta_secs()*450.0);
-        bird.0.translation.y += 450.0*(time.delta_secs());
-        bird.1.image = bird_sprite_handle.mid_flap.clone();
+        bird.translation.y += 450.0*(time.delta_secs());
     }
 }
 
-fn move_bird_2(
-    buttons: Res<ButtonInput<MouseButton>>,
-    mut bird_velocity: Single<&mut LinearVelocity, With<Bird>>,
-    time: Res<Time>,
-) {
-    if buttons.pressed(MouseButton::Left) {
-        println!("i was pressed {} {}",bird_velocity.x,bird_velocity.y);
 
-        bird_velocity.y += 2.0;
-        
-    }
-}
 
 #[derive(Component)]
 #[require(RigidBody, Collider, CollisionEventsEnabled, Sprite, Transform)]

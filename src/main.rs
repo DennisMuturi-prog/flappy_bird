@@ -22,12 +22,12 @@ const HALF_PASSAGE_HEIGHT: f32 = PASSAGE_HEIGHT / 2.0;
 const HALF_PIPE_HEIGHT: f32 = PIPE_HEIGHT / 2.0;
 
 const STARTING_POSITION: f32 = 500.0;
-const PIPE_SPEED_X: f32 = -200.0;
+const PIPE_SPEED_X: f32 = -150.0;
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2d);
     commands.insert_resource(PipeSpawnerTimer(Timer::new(
-        Duration::from_secs(2),
+        Duration::from_millis(1500),
         TimerMode::Repeating,
     )));
 
@@ -134,10 +134,12 @@ fn move_bird(
     buttons: Res<ButtonInput<MouseButton>>,
     mut bird: Single<(&mut Transform, &mut Sprite,&mut LinearVelocity), With<Bird>>,
     bird_sprite_handle: Res<BirdSpriteHandle>,
+    time: Res<Time>,
 ) {
     if buttons.pressed(MouseButton::Left) {
         println!("i was pressed {} {}",bird.2.x,bird.2.y);
-        bird.0.translation.y += 9.0;
+        println!("i was calculating {}",time.delta_secs()*450.0);
+        bird.0.translation.y += 450.0*(time.delta_secs());
         bird.1.image = bird_sprite_handle.mid_flap.clone();
     }
 }

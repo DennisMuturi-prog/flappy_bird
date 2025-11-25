@@ -21,10 +21,13 @@ fn main() {
     app.init_state::<GameState>();
     app.add_loading_state(
         LoadingState::new(GameState::Loading)
-            .continue_to_state(GameState::Playing)
+            .continue_to_state(GameState::Start)
             .load_collection::<AudioAssets>()
             .load_collection::<ImageAssets>(),
     );
+    app.add_systems(OnEnter(GameState::Start), setup_start_screen);
+    app.add_systems(Update, start_game.run_if(in_state(GameState::Start)));
+    app.add_systems(Update, restart_game.run_if(in_state(GameState::GameOver)));
     app.add_systems(OnEnter(GameState::Playing), setup);
     app.add_systems(OnEnter(GameState::Playing), setup_scoreboard);
     app.add_systems(Update, spawn_pipes.run_if(in_state(GameState::Playing)));
@@ -57,7 +60,6 @@ const SCOREBOARD_TEXT_PADDING: Val = Val::Px(5.0);
 const TEXT_COLOR: Color = Color::srgb(0.5, 0.5, 1.0);
 const SCORE_COLOR: Color = Color::srgb(1.0, 0.5, 0.5);
 fn setup(mut commands: Commands, audio_assets: Res<AudioAssets>, image_assets: Res<ImageAssets>) {
-    commands.spawn(Camera2d);
     commands.insert_resource(CollisionSound(audio_assets.hit.clone()));
     commands.insert_resource(PassSound(audio_assets.pass.clone()));
     commands.insert_resource(PipeSpawnerTimer(Timer::new(
@@ -71,13 +73,6 @@ fn setup(mut commands: Commands, audio_assets: Res<AudioAssets>, image_assets: R
         down_flap: image_assets.downflap_bird.clone(),
         mid_flap: image_assets.midflap_bird.clone(),
     });
-    commands.spawn((
-        Sprite {
-            image: image_assets.background_day.clone(),
-            ..default()
-        },
-        Transform::from_xyz(0.0, 0.0, -10.0), // Put behind everything
-    ));
 
     commands.spawn((
         Ground,
@@ -100,6 +95,7 @@ fn setup(mut commands: Commands, audio_assets: Res<AudioAssets>, image_assets: R
         CollisionEventsEnabled,
         Transform::from_xyz(0.0, 0.0, 0.0),
         GravityScale(20.5),
+        DespawnOnExit(GameState::Playing),
     ));
 }
 
@@ -131,6 +127,44 @@ fn setup_scoreboard(mut commands: Commands) {
     ));
 }
 
+fn setup_start_screen(mut commands: Commands, image_assets: Res<ImageAssets>) {
+    commands.spawn(Camera2d);
+    commands.spawn((
+        Sprite {
+            image: image_assets.background_day.clone(),
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, -10.0), // Put behind everything
+    ));
+    commands.spawn((
+        DespawnOnExit(GameState::Start),
+        Sprite {
+            image: image_assets.start_messsage.clone(),
+            ..default()
+        },
+    ));
+}
+fn start_game(
+    buttons: Res<ButtonInput<MouseButton>>,
+    mut game_state: ResMut<NextState<GameState>>,
+) {
+    if buttons.pressed(MouseButton::Left) {
+        game_state.set(GameState::Playing);
+    }
+}
+
+fn restart_game(
+    buttons: Res<ButtonInput<KeyCode>>,
+    mut game_state: ResMut<NextState<GameState>>,
+    mut player_score: ResMut<PlayerScore>,
+
+) {
+    if buttons.pressed(KeyCode::Enter) {
+        game_state.set(GameState::Playing);
+        player_score.0=0;
+    }
+}
+
 fn spawn_pipes(
     time: Res<Time>,
     mut commands: Commands,
@@ -159,6 +193,7 @@ fn spawn_pipes(
                 x: PIPE_SPEED_X,
                 y: 0.0,
             }),
+            DespawnOnExit(GameState::Playing),
         ));
         commands.spawn((
             Pipe,
@@ -174,6 +209,7 @@ fn spawn_pipes(
                 x: PIPE_SPEED_X,
                 y: 0.0,
             }),
+            DespawnOnExit(GameState::Playing),
         ));
         commands.spawn((
             Passage,
@@ -185,6 +221,7 @@ fn spawn_pipes(
                 x: PIPE_SPEED_X,
                 y: 0.0,
             }),
+            DespawnOnExit(GameState::Playing),
         ));
     }
 }
@@ -218,16 +255,36 @@ fn detect_collisions_with_pipes(
     pipes_query: Query<(), With<Pipe>>,
     mut commands: Commands,
     sound: Res<CollisionSound>,
+    image_handles: Res<ImageAssets>,
+    mut game_state: ResMut<NextState<GameState>>,
 ) {
     for event in collision_reader.read() {
         let collider1 = event.collider1;
         let collider2 = event.collider2;
         if bird.entity() == collider1 {
             if pipes_query.get(collider2).is_ok() {
+                game_state.set(GameState::GameOver);
                 commands.spawn((AudioPlayer(sound.clone()), PlaybackSettings::DESPAWN));
+                commands.spawn((
+                    DespawnOnExit(GameState::GameOver),
+                    Sprite {
+                        image: image_handles.gameover.clone(),
+                        ..default()
+                    },
+                    Transform::from_xyz(0.0, 0.0, 10.0),
+                ));
             }
         } else if pipes_query.get(collider1).is_ok() {
+            game_state.set(GameState::GameOver);
+
             commands.spawn((AudioPlayer(sound.clone()), PlaybackSettings::DESPAWN));
+            commands.spawn((
+                DespawnOnExit(GameState::GameOver),
+                Sprite {
+                    image: image_handles.gameover.clone(),
+                    ..default()
+                },
+            ));
         }
     }
 }
@@ -340,11 +397,19 @@ pub struct ImageAssets {
 
     #[asset(path = "sprites/base.png")]
     pub base: Handle<Image>,
+
+    #[asset(path = "sprites/gameover.png")]
+    pub gameover: Handle<Image>,
+
+    #[asset(path = "sprites/message.png")]
+    pub start_messsage: Handle<Image>,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash, Default, States)]
 enum GameState {
     #[default]
     Loading,
+    Start,
     Playing,
+    GameOver,
 }

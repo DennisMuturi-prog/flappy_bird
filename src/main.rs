@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use avian2d::prelude::*;
 use bevy::{prelude::*, window::WindowResolution};
+use bevy_asset_loader::prelude::*;
 use rand::Rng;
 fn main() {
     let mut app = App::new();
@@ -16,16 +17,32 @@ fn main() {
             ..default()
         }),
         PhysicsPlugins::default(),
-        PhysicsDebugPlugin,
     ));
-    app.add_systems(Startup, setup);
-    app.add_systems(Startup, setup_scoreboard);
-    app.add_systems(Update, spawn_pipes);
-    app.add_systems(Update, (move_bird, change_sprite).chain());
-    app.add_systems(Update, detect_collisions_with_pipes);
+    app.init_state::<GameState>();
+    app.add_loading_state(
+        LoadingState::new(GameState::Loading)
+            .continue_to_state(GameState::Playing)
+            .load_collection::<AudioAssets>()
+            .load_collection::<ImageAssets>(),
+    );
+    app.add_systems(OnEnter(GameState::Playing), setup);
+    app.add_systems(OnEnter(GameState::Playing), setup_scoreboard);
+    app.add_systems(Update, spawn_pipes.run_if(in_state(GameState::Playing)));
     app.add_systems(
         Update,
-        (detect_collisions_with_passage, update_scoreboard).chain(),
+        (move_bird, change_sprite)
+            .chain()
+            .run_if(in_state(GameState::Playing)),
+    );
+    app.add_systems(
+        Update,
+        detect_collisions_with_pipes.run_if(in_state(GameState::Playing)),
+    );
+    app.add_systems(
+        Update,
+        (detect_collisions_with_passage, update_scoreboard)
+            .chain()
+            .run_if(in_state(GameState::Playing)),
     );
     app.run();
 }
@@ -41,37 +58,43 @@ const SCOREBOARD_FONT_SIZE: f32 = 33.0;
 const SCOREBOARD_TEXT_PADDING: Val = Val::Px(5.0);
 const TEXT_COLOR: Color = Color::srgb(0.5, 0.5, 1.0);
 const SCORE_COLOR: Color = Color::srgb(1.0, 0.5, 0.5);
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup(mut commands: Commands, audio_assets: Res<AudioAssets>, image_assets: Res<ImageAssets>) {
     commands.spawn(Camera2d);
-    let bird_collision_sound = asset_server.load("sounds/hit.ogg");
-    let bird_pass_sound = asset_server.load("sounds/point.ogg");
-    commands.insert_resource(CollisionSound(bird_collision_sound));
-    commands.insert_resource(PassSound(bird_pass_sound));
+    commands.insert_resource(CollisionSound(audio_assets.hit.clone()));
+    commands.insert_resource(PassSound(audio_assets.pass.clone()));
     commands.insert_resource(PipeSpawnerTimer(Timer::new(
         Duration::from_millis(1500),
         TimerMode::Repeating,
     )));
 
-    let green_pipe: Handle<Image> = asset_server.load("sprites/pipe-green.png");
-    commands.insert_resource(PipeSpriteHandle(green_pipe.clone()));
-    let background_day: Handle<Image> = asset_server.load("sprites/background-day.png");
-    let bluebird_upflap: Handle<Image> = asset_server.load("sprites/bluebird-upflap.png");
-    let bluebird_midflap: Handle<Image> = asset_server.load("sprites/bluebird-midflap.png");
-    let bluebird_downflap: Handle<Image> = asset_server.load("sprites/bluebird-downflap.png");
-    let ground: Handle<Image> = asset_server.load("sprites/base.png");
+    commands.insert_resource(PipeSpriteHandle(image_assets.pipe.clone()));
     commands.insert_resource(BirdSpriteHandle {
-        up_flap: bluebird_upflap,
-        down_flap: bluebird_downflap.clone(),
-        mid_flap: bluebird_midflap,
+        up_flap: image_assets.upflap_bird.clone(),
+        down_flap: image_assets.downflap_bird.clone(),
+        mid_flap: image_assets.midflap_bird.clone(),
     });
-    commands.spawn(Sprite {
-        image: background_day,
-        ..default()
-    });
+    commands.spawn((
+        Sprite {
+            image: image_assets.background_day.clone(),
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.0, -10.0), // Put behind everything
+    ));
+
+    commands.spawn((
+        Ground,
+        Sprite {
+            image: image_assets.base.clone(),
+            ..default()
+        },
+        RigidBody::Static,
+        Collider::rectangle(280.0, 110.0),
+        Transform::from_xyz(0.0, -270.0, 10.0),
+    ));
     commands.spawn((
         Bird,
         Sprite {
-            image: bluebird_downflap,
+            image: image_assets.downflap_bird.clone(),
             ..default()
         },
         RigidBody::Dynamic,
@@ -79,16 +102,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         CollisionEventsEnabled,
         Transform::from_xyz(0.0, 0.0, 0.0),
         GravityScale(20.5),
-    ));
-    commands.spawn((
-        Ground,
-        Sprite {
-            image: ground,
-            ..default()
-        },
-        RigidBody::Static,
-        Collider::rectangle(280.0, 110.0),
-        Transform::from_xyz(0.0, -270.0, 10.0),
     ));
 }
 
@@ -303,3 +316,37 @@ struct PassSound(Handle<AudioSource>);
 
 #[derive(Resource)]
 struct PlayerScore(usize);
+
+#[derive(AssetCollection, Resource)]
+struct AudioAssets {
+    #[asset(path = "sounds/hit.ogg")]
+    hit: Handle<AudioSource>,
+    #[asset(path = "sounds/point.ogg")]
+    pass: Handle<AudioSource>,
+}
+
+#[derive(AssetCollection, Resource)]
+pub struct ImageAssets {
+    #[asset(path = "sprites/bluebird-upflap.png")]
+    pub upflap_bird: Handle<Image>,
+    #[asset(path = "sprites/bluebird-midflap.png")]
+    pub midflap_bird: Handle<Image>,
+    #[asset(path = "sprites/bluebird-downflap.png")]
+    pub downflap_bird: Handle<Image>,
+
+    #[asset(path = "sprites/pipe-green.png")]
+    pub pipe: Handle<Image>,
+
+    #[asset(path = "sprites/background-day.png")]
+    pub background_day: Handle<Image>,
+
+    #[asset(path = "sprites/base.png")]
+    pub base: Handle<Image>,
+}
+
+#[derive(Clone, Eq, PartialEq, Debug, Hash, Default, States)]
+enum GameState {
+    #[default]
+    Loading,
+    Playing,
+}

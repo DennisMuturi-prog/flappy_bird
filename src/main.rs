@@ -46,10 +46,8 @@ fn main() {
     );
     app.run();
 }
-const PASSAGE_HEIGHT: f32 = 150.0;
 const PIPE_HEIGHT: f32 = 320.0;
 
-const HALF_PASSAGE_HEIGHT: f32 = PASSAGE_HEIGHT / 2.0;
 const HALF_PIPE_HEIGHT: f32 = PIPE_HEIGHT / 2.0;
 
 const STARTING_POSITION: f32 = 500.0;

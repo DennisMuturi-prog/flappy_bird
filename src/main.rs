@@ -1,21 +1,32 @@
 use std::time::Duration;
 
 use avian2d::prelude::*;
-use bevy::prelude::*;
+use bevy::{prelude::*, window::WindowResolution};
 use rand::Rng;
 fn main() {
     let mut app = App::new();
     app.add_plugins((
-        DefaultPlugins,
+        DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: String::from("Flappy Bird"),
+                position: WindowPosition::Centered(MonitorSelection::Primary),
+                resolution: WindowResolution::new(280, 500),
+                ..default()
+            }),
+            ..default()
+        }),
         PhysicsPlugins::default(),
         PhysicsDebugPlugin,
     ));
     app.add_systems(Startup, setup);
     app.add_systems(Startup, setup_scoreboard);
     app.add_systems(Update, spawn_pipes);
-    app.add_systems(Update, move_bird);
+    app.add_systems(Update, (move_bird, change_sprite).chain());
     app.add_systems(Update, detect_collisions_with_pipes);
-    app.add_systems(Update, (detect_collisions_with_passage,update_scoreboard).chain());
+    app.add_systems(
+        Update,
+        (detect_collisions_with_passage, update_scoreboard).chain(),
+    );
     app.run();
 }
 const PASSAGE_HEIGHT: f32 = 150.0;
@@ -46,7 +57,8 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let background_day: Handle<Image> = asset_server.load("sprites/background-day.png");
     let bluebird_upflap: Handle<Image> = asset_server.load("sprites/bluebird-upflap.png");
     let bluebird_midflap: Handle<Image> = asset_server.load("sprites/bluebird-midflap.png");
-    let bluebird_downflap: Handle<Image> = asset_server.load("sprites/bluebird-upflap.png");
+    let bluebird_downflap: Handle<Image> = asset_server.load("sprites/bluebird-downflap.png");
+    let ground: Handle<Image> = asset_server.load("sprites/base.png");
     commands.insert_resource(BirdSpriteHandle {
         up_flap: bluebird_upflap,
         down_flap: bluebird_downflap.clone(),
@@ -54,10 +66,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     });
     commands.spawn(Sprite {
         image: background_day,
-        custom_size: Some(Vec2 {
-            x: 1000.0,
-            y: 600.0,
-        }),
         ..default()
     });
     commands.spawn((
@@ -70,7 +78,17 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Collider::circle(16.0),
         CollisionEventsEnabled,
         Transform::from_xyz(0.0, 0.0, 0.0),
-        GravityScale(1.5),
+        GravityScale(20.5),
+    ));
+    commands.spawn((
+        Ground,
+        Sprite {
+            image: ground,
+            ..default()
+        },
+        RigidBody::Static,
+        Collider::rectangle(280.0, 110.0),
+        Transform::from_xyz(0.0, -270.0, 10.0),
     ));
 }
 
@@ -112,8 +130,10 @@ fn spawn_pipes(
     if pipe_spawner_timer.is_finished() {
         let mut rng = rand::rng();
         let position_of_passage: f32 = rng.random_range(-100.0..=100.0);
-        let position_of_first_pipe = position_of_passage - HALF_PASSAGE_HEIGHT - HALF_PIPE_HEIGHT;
-        let position_of_second_pipe = position_of_passage + HALF_PASSAGE_HEIGHT + HALF_PIPE_HEIGHT;
+        let height_of_passage = rng.random_range(80.0..=150.0);
+        let half_passage_height = height_of_passage / 2.0;
+        let position_of_first_pipe = position_of_passage - half_passage_height - HALF_PIPE_HEIGHT;
+        let position_of_second_pipe = position_of_passage + half_passage_height + HALF_PIPE_HEIGHT;
 
         commands.spawn((
             Pipe,
@@ -147,7 +167,7 @@ fn spawn_pipes(
         commands.spawn((
             Passage,
             RigidBody::Kinematic,
-            Collider::rectangle(48.0, PASSAGE_HEIGHT),
+            Collider::rectangle(48.0, height_of_passage),
             Transform::from_xyz(STARTING_POSITION, position_of_passage, 0.0),
             Sensor,
             LinearVelocity(Vec2 {
@@ -158,13 +178,26 @@ fn spawn_pipes(
     }
 }
 
+fn change_sprite(
+    bird_sprite_handle: Res<BirdSpriteHandle>,
+    bird: Single<(&LinearVelocity, &mut Sprite), With<Bird>>,
+) {
+    let (linear_velocity, mut sprite) = bird.into_inner();
+    if linear_velocity.y > 0.0 {
+        sprite.image = bird_sprite_handle.up_flap.clone();
+    } else if linear_velocity.y == 0.0 {
+        sprite.image = bird_sprite_handle.mid_flap.clone();
+    } else {
+        sprite.image = bird_sprite_handle.down_flap.clone();
+    }
+}
+
 fn move_bird(
     buttons: Res<ButtonInput<MouseButton>>,
-    mut bird: Single<&mut Transform, With<Bird>>,
-    time: Res<Time>,
+    mut bird: Single<&mut LinearVelocity, With<Bird>>,
 ) {
     if buttons.pressed(MouseButton::Left) {
-        bird.translation.y += 500.0 * (time.delta_secs());
+        bird.y = 70.0;
     }
 }
 
@@ -193,22 +226,19 @@ fn update_scoreboard(
     passage_query: Query<(), With<Passage>>,
     score_root: Single<Entity, (With<ScoreboardUi>, With<Text>)>,
     mut writer: TextUiWriter,
-    player_score: Res<PlayerScore>
-){
+    player_score: Res<PlayerScore>,
+) {
     for event in collision_reader.read() {
         let collider1 = event.collider1;
         let collider2 = event.collider2;
         if bird.entity() == collider1 {
             if passage_query.get(collider2).is_ok() {
-                *writer.text(*score_root,1 ) = player_score.0.to_string();
-
+                *writer.text(*score_root, 1) = player_score.0.to_string();
             }
         } else if passage_query.get(collider1).is_ok() {
-            *writer.text(*score_root,1 ) = player_score.0.to_string();
-            
+            *writer.text(*score_root, 1) = player_score.0.to_string();
         }
     }
-
 }
 fn detect_collisions_with_passage(
     mut collision_reader: MessageReader<CollisionEnd>,
@@ -217,7 +247,6 @@ fn detect_collisions_with_passage(
     mut commands: Commands,
     sound: Res<PassSound>,
     mut player_score: ResMut<PlayerScore>,
-    
 ) {
     for event in collision_reader.read() {
         let collider1 = event.collider1;
@@ -226,7 +255,6 @@ fn detect_collisions_with_passage(
             if passage_query.get(collider2).is_ok() {
                 commands.spawn((AudioPlayer(sound.clone()), PlaybackSettings::DESPAWN));
                 player_score.0 += 1;
-
             }
         } else if passage_query.get(collider1).is_ok() {
             commands.spawn((AudioPlayer(sound.clone()), PlaybackSettings::DESPAWN));
@@ -245,6 +273,10 @@ struct ScoreboardUi;
 #[derive(Component)]
 #[require(RigidBody, Collider, Sprite, LinearVelocity, Transform)]
 struct Pipe;
+
+#[derive(Component)]
+#[require(RigidBody, Collider, Sprite, Transform)]
+struct Ground;
 
 #[derive(Component)]
 #[require(RigidBody, Collider, Transform, Sensor)]

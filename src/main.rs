@@ -3,7 +3,7 @@ use std::time::Duration;
 use avian2d::prelude::*;
 use bevy::{prelude::*, window::WindowResolution};
 use bevy_asset_loader::prelude::*;
-use rand::Rng;
+use rand::{Rng, rngs::ThreadRng};
 fn main() {
     let mut app = App::new();
     app.add_plugins((
@@ -12,6 +12,7 @@ fn main() {
                 title: String::from("Flappy Bird"),
                 position: WindowPosition::Centered(MonitorSelection::Primary),
                 resolution: WindowResolution::new(280, 500),
+                resizable:false,
                 ..default()
             }),
             ..default()
@@ -54,7 +55,7 @@ const PIPE_HEIGHT: f32 = 320.0;
 const HALF_PIPE_HEIGHT: f32 = PIPE_HEIGHT / 2.0;
 
 const STARTING_POSITION: f32 = 500.0;
-const PIPE_SPEED_X: f32 = -150.0;
+const PIPE_SPEED_X: f32 = -100.0;
 const SCOREBOARD_FONT_SIZE: f32 = 33.0;
 const SCOREBOARD_TEXT_PADDING: Val = Val::Px(5.0);
 const TEXT_COLOR: Color = Color::srgb(0.5, 0.5, 1.0);
@@ -93,14 +94,16 @@ fn setup(mut commands: Commands, audio_assets: Res<AudioAssets>, image_assets: R
         RigidBody::Dynamic,
         Collider::circle(16.0),
         CollisionEventsEnabled,
-        Transform::from_xyz(0.0, 0.0, 0.0),
+        Transform::from_xyz(-100.0, 0.0, 0.0),
         GravityScale(20.5),
-        DespawnOnExit(GameState::Playing),
+        DespawnOnExit(GameState::GameOver),
     ));
+
+    let rng = rand::rng();
+    spawn_pipe_set(commands,image_assets.pipe.clone(),rng,300.0);
 }
 
 fn setup_scoreboard(mut commands: Commands) {
-    commands.insert_resource(PlayerScore(0));
 
     commands.spawn((
         Text::new("Score: "),
@@ -124,11 +127,14 @@ fn setup_scoreboard(mut commands: Commands) {
             },
             TextColor(SCORE_COLOR),
         )],
+        DespawnOnExit(GameState::GameOver),
+
     ));
 }
 
 fn setup_start_screen(mut commands: Commands, image_assets: Res<ImageAssets>) {
     commands.spawn(Camera2d);
+    commands.insert_resource(PlayerScore(0));
     commands.spawn((
         Sprite {
             image: image_assets.background_day.clone(),
@@ -154,26 +160,21 @@ fn start_game(
 }
 
 fn restart_game(
-    buttons: Res<ButtonInput<KeyCode>>,
+    buttons: Res<ButtonInput<MouseButton>>,
     mut game_state: ResMut<NextState<GameState>>,
     mut player_score: ResMut<PlayerScore>,
-
 ) {
-    if buttons.pressed(KeyCode::Enter) {
+    if buttons.pressed(MouseButton::Left) {
         game_state.set(GameState::Playing);
-        player_score.0=0;
+        player_score.0 = 0;
     }
 }
-
-fn spawn_pipes(
-    time: Res<Time>,
+fn spawn_pipe_set(
     mut commands: Commands,
-    green_pipe: Res<PipeSpriteHandle>,
-    mut pipe_spawner_timer: ResMut<PipeSpawnerTimer>,
-) {
-    pipe_spawner_timer.tick(time.delta());
-    if pipe_spawner_timer.is_finished() {
-        let mut rng = rand::rng();
+    pipe_asset:Handle<Image>,
+    mut rng:ThreadRng,
+    starting_position:f32
+){
         let position_of_passage: f32 = rng.random_range(-100.0..=100.0);
         let height_of_passage = rng.random_range(80.0..=150.0);
         let half_passage_height = height_of_passage / 2.0;
@@ -183,46 +184,59 @@ fn spawn_pipes(
         commands.spawn((
             Pipe,
             Sprite {
-                image: green_pipe.clone(),
+                image: pipe_asset.clone(),
                 ..default()
             },
             RigidBody::Kinematic,
             Collider::rectangle(48.0, 320.0),
-            Transform::from_xyz(STARTING_POSITION, position_of_first_pipe, 0.0),
+            Transform::from_xyz(starting_position, position_of_first_pipe, 0.0),
             LinearVelocity(Vec2 {
                 x: PIPE_SPEED_X,
                 y: 0.0,
             }),
-            DespawnOnExit(GameState::Playing),
+            DespawnOnExit(GameState::GameOver),
         ));
         commands.spawn((
             Pipe,
             Sprite {
-                image: green_pipe.clone(),
+                image: pipe_asset,
                 flip_y: true,
                 ..default()
             },
             RigidBody::Kinematic,
             Collider::rectangle(48.0, 320.0),
-            Transform::from_xyz(STARTING_POSITION, position_of_second_pipe, 0.0),
+            Transform::from_xyz(starting_position, position_of_second_pipe, 0.0),
             LinearVelocity(Vec2 {
                 x: PIPE_SPEED_X,
                 y: 0.0,
             }),
-            DespawnOnExit(GameState::Playing),
+            DespawnOnExit(GameState::GameOver),
         ));
         commands.spawn((
             Passage,
             RigidBody::Kinematic,
             Collider::rectangle(48.0, height_of_passage),
-            Transform::from_xyz(STARTING_POSITION, position_of_passage, 0.0),
+            Transform::from_xyz(starting_position, position_of_passage, 0.0),
             Sensor,
             LinearVelocity(Vec2 {
                 x: PIPE_SPEED_X,
                 y: 0.0,
             }),
-            DespawnOnExit(GameState::Playing),
+            DespawnOnExit(GameState::GameOver),
         ));
+    
+}
+
+fn spawn_pipes(
+    time: Res<Time>,
+    commands: Commands,
+    green_pipe: Res<PipeSpriteHandle>,
+    mut pipe_spawner_timer: ResMut<PipeSpawnerTimer>,
+) {
+    pipe_spawner_timer.tick(time.delta());
+    if pipe_spawner_timer.is_finished() {
+        let rng = rand::rng();
+        spawn_pipe_set(commands,green_pipe.clone(),rng,STARTING_POSITION);
     }
 }
 
@@ -271,7 +285,7 @@ fn detect_collisions_with_pipes(
                         image: image_handles.gameover.clone(),
                         ..default()
                     },
-                    Transform::from_xyz(0.0, 0.0, 10.0),
+                    Transform::from_xyz(0.0, 0.0, 20.0),
                 ));
             }
         } else if pipes_query.get(collider1).is_ok() {
@@ -284,6 +298,7 @@ fn detect_collisions_with_pipes(
                     image: image_handles.gameover.clone(),
                     ..default()
                 },
+                Transform::from_xyz(0.0, 0.0, 20.0),
             ));
         }
     }
